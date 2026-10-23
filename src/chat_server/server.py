@@ -31,7 +31,14 @@ def handle_client(connection, address):
                 message = data.decode()
                 print(f"{username}: {message}")
 
-                connection.sendall(b"Message received!")
+                broadcast_message=f"{username}: {message}\n".encode()
+                with clients_lock:
+                    for client in clients:
+                        if client!=connection:
+                            try:
+                                client.sendall(broadcast_message)
+                            except OSError:
+                                pass
 
         finally:
             with clients_lock:
