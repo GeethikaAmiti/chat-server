@@ -6,4 +6,4 @@ with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as client:
     message="Hello from the clienttt!"
     client.sendall(message.encode())
     response=client.recv(1024)
-    print(f"Server says {response.decode()}")
+    print(f"Server says: {response.decode()}")
