@@ -6,6 +6,8 @@ PORT = 5000
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
     client.connect((HOST, PORT))
     print("Connected to the server!")
+    username=input("Enter your username: ")
+    client.sendall(username.encode())
 
     while True:
         message = input("You: ")

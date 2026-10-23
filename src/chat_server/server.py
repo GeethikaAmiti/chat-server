@@ -4,21 +4,40 @@ import threading
 HOST = "127.0.0.1"
 PORT = 5000
 
+clients = {}
+clients_lock = threading.Lock()
 
 def handle_client(connection, address):
     print(f"Connected by {address}")
 
     with connection:
-        while True:
-            data = connection.recv(1024)
+        username = connection.recv(1024).decode().strip()
 
-            if not data:
-                break
+        if not username:
+            return
 
-            message = data.decode()
-            print(f"Client says: {message}")
+        with clients_lock:
+            clients[connection] = username
 
-            connection.sendall(b"Hello from the server!")
+        print(f"{username} joined the chat")
+
+        try:
+            while True:
+                data = connection.recv(1024)
+
+                if not data:
+                    break
+
+                message = data.decode()
+                print(f"{username}: {message}")
+
+                connection.sendall(b"Message received!")
+
+        finally:
+            with clients_lock:
+                clients.pop(connection, None)
+
+            print(f"{username} disconnected")
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
     server.bind((HOST, PORT))
