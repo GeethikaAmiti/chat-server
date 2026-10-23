@@ -1,11 +1,13 @@
 import socket
 import threading
+from chat_manager import ChatManager
 
 HOST = "127.0.0.1"
 PORT = 5000
 
 clients = {}
 clients_lock = threading.Lock()
+chat_manager=ChatManager()
 
 def handle_client(connection, address):
     print(f"Connected by {address}")
@@ -19,6 +21,10 @@ def handle_client(connection, address):
         with clients_lock:
             clients[connection] = username
 
+        #making sure new user can see chat history
+        for message in chat_manager.get_history():
+            connection.sendall(f"{message}\n".encode())
+
         print(f"{username} joined the chat")
 
         try:
@@ -28,10 +34,15 @@ def handle_client(connection, address):
                 if not data:
                     break
 
-                message = data.decode()
-                print(f"{username}: {message}")
+                message = data.decode().strip()
+                if not message:
+                    continue
 
-                broadcast_message=f"{username}: {message}\n".encode()
+                formatted_message=chat_manager.add_message(username,message)
+                print(formatted_message)
+
+                broadcast_message=f"{formatted_message}\n".encode()
+
                 with clients_lock:
                     for client in clients:
                         if client!=connection:
