@@ -1,5 +1,9 @@
 import socket
 import threading
+import time
+import select
+from collections import deque
+
 from chat_manager import ChatManager
 from models import ClientSession, ServerSlot
 
@@ -17,6 +21,29 @@ servers = [
 ]
 
 sessions = {}
+waiting_queue = deque()
+queue_condition = threading.Condition(clients_lock)
+WAIT_TIMEOUT = 5 * 60
+
+
+def remove_from_queue(connection):
+    for entry in list(waiting_queue):
+        if entry[0] is connection:
+            waiting_queue.remove(entry)
+            break
+
+
+def client_disconnected(connection):
+    try:
+        readable, _, _ = select.select([connection], [], [], 0)
+
+        if readable:
+            return connection.recv(1, socket.MSG_PEEK) == b""
+
+    except OSError:
+        return True
+
+    return False
 
 
 def handle_client(connection, address):
@@ -29,36 +56,85 @@ def handle_client(connection, address):
             return
 
         session = ClientSession(username)
-
-        with clients_lock:
-            assigned_server = None
-
-            for server_slot in servers:
-                if server_slot.assign_client(session):
-                    assigned_server = server_slot
-                    break
-
-            if assigned_server is not None:
-                clients[connection] = username
-                sessions[connection] = session
-
-        if assigned_server is None:
-            connection.sendall(
-                "All servers are currently full. Please try again later.\n".encode()
-            )
-            return
-
-        connection.sendall(
-            f"You are connected to {session.server_name}.\n".encode()
-        )
-
-        # Send previous chat messages to the new user.
-        for message in chat_manager.get_history():
-            connection.sendall(f"{message}\n".encode())
-
-        print(f"{username} joined the chat")
+        wait_started = time.monotonic()
+        registered = False
+        disconnected = False
 
         try:
+            with queue_condition:
+                waiting_queue.append(
+                    (connection, session, wait_started)
+                )
+
+                while True:
+                    if client_disconnected(connection):
+                        remove_from_queue(connection)
+                        session.status = "Disconnected"
+                        disconnected = True
+                        queue_condition.notify_all()
+                        break
+
+                    # Only the first client in the queue can claim a slot.
+                    if (
+                        waiting_queue
+                        and waiting_queue[0][0] is connection
+                    ):
+                        assigned_server = next(
+                            (
+                                slot for slot in servers
+                                if slot.is_available
+                            ),
+                            None,
+                        )
+
+                        if (
+                            assigned_server is not None
+                            and assigned_server.assign_client(session)
+                        ):
+                            waiting_queue.popleft()
+                            clients[connection] = username
+                            sessions[connection] = session
+                            registered = True
+
+                            queue_condition.notify_all()
+                            break
+
+                    remaining = WAIT_TIMEOUT - (
+                        time.monotonic() - wait_started
+                    )
+
+                    if remaining <= 0:
+                        remove_from_queue(connection)
+                        session.status = "Lost"
+                        queue_condition.notify_all()
+                        break
+
+                    queue_condition.wait(
+                        timeout=min(remaining, 1.0)
+                    )
+
+            if not registered:
+                if not disconnected:
+                    try:
+                        connection.sendall(
+                            "Waited more than 5 minutes. "
+                            "Please try again later.\n".encode()
+                        )
+                    except OSError:
+                        pass
+
+                return
+
+            connection.sendall(
+                f"You are connected to {session.server_name}.\n".encode()
+            )
+
+            # Send previous chat messages to the new user.
+            for message in chat_manager.get_history():
+                connection.sendall(f"{message}\n".encode())
+
+            print(f"{username} joined the chat")
+
             while True:
                 data = connection.recv(1024)
 
@@ -70,7 +146,9 @@ def handle_client(connection, address):
                 if not message:
                     continue
 
-                formatted_message = chat_manager.add_message(username, message)
+                formatted_message = chat_manager.add_message(
+                    username, message
+                )
                 print(formatted_message)
 
                 broadcast_message = f"{formatted_message}\n".encode()
@@ -84,16 +162,20 @@ def handle_client(connection, address):
                                 pass
 
         finally:
-            with clients_lock:
-                clients.pop(connection, None)
-                session = sessions.pop(connection, None)
+            with queue_condition:
+                remove_from_queue(connection)
 
-                if session is not None:
+                clients.pop(connection, None)
+                active_session = sessions.pop(connection, None)
+
+                if active_session is not None:
                     for server_slot in servers:
-                        if session in server_slot.current_clients:
-                            server_slot.current_clients.remove(session)
-                            session.status = "Disconnected"
+                        if active_session in server_slot.current_clients:
+                            server_slot.current_clients.remove(active_session)
+                            active_session.status = "Disconnected"
                             break
+
+                queue_condition.notify_all()
 
             print(f"{username} disconnected")
 
