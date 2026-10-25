@@ -1,5 +1,7 @@
 import socket
 import threading
+from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout
 
 HOST = "127.0.0.1"
 PORT = 5000
@@ -32,16 +34,19 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
     )
     receiver.start()
 
+    prompt = PromptSession()
+
     try:
-        while True:
-            message = input("You: ")
+        with patch_stdout():
+            while True:
+                message = prompt.prompt("You: ")
 
-            if message.lower() == "exit":
-                break
+                if message.lower() == "exit":
+                    break
 
-            client.sendall(f"{message}\n".encode())
+                client.sendall(f"{message}\n".encode())
 
-    except (KeyboardInterrupt, OSError):
+    except (KeyboardInterrupt, EOFError, OSError):
         pass
 
     print("Disconnected from chat.")
