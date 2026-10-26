@@ -16,7 +16,7 @@ class ClientSession:
 
 
 class ServerSlot:
-    def __init__(self, name, capacity=1):
+    def __init__(self, name, capacity=5):
         self.name = name
         self.capacity = capacity
         self.current_clients = []
@@ -30,13 +30,11 @@ class ServerSlot:
 
     @property
     def average_rating(self):
-        # If the ratings list is empty, return 0.
         if not self.ratings:
             return 0
         return sum(self.ratings) / len(self.ratings)
 
     def assign_client(self, session):
-        # If the server is not available, don't assign the client.
         if not self.is_available:
             return False
 
@@ -44,13 +42,17 @@ class ServerSlot:
         session.server_name = self.name
         session.status = "Active"
         session.entered_at = datetime.now()
-        session.waiting_time = (session.entered_at - session.created_at).total_seconds()
+        session.waiting_time = (
+            session.entered_at - session.created_at
+        ).total_seconds()
         return True
 
     def finish_session(self, session, rating):
-        # If the session isn't active, don't finish it.
         if session not in self.current_clients:
             return False
+
+        if not isinstance(rating, int) or not 1 <= rating <= 5:
+            raise ValueError("Rating must be an integer from 1 to 5.")
 
         self.current_clients.remove(session)
         session.status = "Completed"

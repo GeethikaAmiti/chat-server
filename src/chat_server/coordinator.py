@@ -3,10 +3,12 @@ import threading
 import time
 from collections import deque
 
+from stats_manager import record_approach, record_lost
+
 HOST = "127.0.0.1"
 PORT = 5000
 CAPACITY = 1
-WAIT_TIMEOUT = 5 * 60
+WAIT_TIMEOUT = 15
 
 servers = {
     "Server A": {"port": 5001, "active": 0},
@@ -22,19 +24,22 @@ def available_server():
     for name, details in servers.items():
         if details["active"] < CAPACITY:
             return name, details
+
     return None
 
 
 def dispatch():
     while waiting_queue:
-        entry = waiting_queue[0]
         available = available_server()
 
         if available is None:
             break
 
+        entry = waiting_queue[0]
+
         name, details = available
         details["active"] += 1
+
         entry["assignment"] = (name, details["port"])
         entry["status"] = "assigned"
         waiting_queue.popleft()
@@ -43,8 +48,9 @@ def dispatch():
 
 
 def handle_assignment(connection):
+    record_approach()
+
     entry = {
-        "connection": connection,
         "start": time.monotonic(),
         "status": "waiting",
         "assignment": None,
@@ -53,14 +59,19 @@ def handle_assignment(connection):
     with condition:
         waiting_queue.append(entry)
         print(f"Client queued. Position: {len(waiting_queue)}")
+
         dispatch()
 
         while entry["status"] == "waiting":
-            remaining = WAIT_TIMEOUT - (time.monotonic() - entry["start"])
+            remaining = WAIT_TIMEOUT - (
+                time.monotonic() - entry["start"]
+            )
 
             if remaining <= 0:
                 waiting_queue.remove(entry)
                 entry["status"] = "timeout"
+                record_lost()
+                print("Client timed out and was marked as lost.")
                 break
 
             condition.wait(timeout=remaining)
@@ -70,12 +81,14 @@ def handle_assignment(connection):
 
     if status == "assigned":
         name, port = assignment
+
         try:
             connection.sendall(f"{name}|{port}\n".encode())
         except OSError:
             with condition:
                 servers[name]["active"] -= 1
                 dispatch()
+
     elif status == "timeout":
         try:
             connection.sendall(b"TIMEOUT\n")
@@ -85,19 +98,31 @@ def handle_assignment(connection):
 
 def handle_request(connection):
     with connection:
-        request = connection.makefile("r", encoding="utf-8").readline().strip()
+        reader = connection.makefile("r", encoding="utf-8")
 
-        if request == "ASSIGN":
-            handle_assignment(connection)
+        try:
+            request = reader.readline().strip()
 
-        elif request.startswith("RELEASE "):
-            name = request.removeprefix("RELEASE ").strip()
+            if request == "ASSIGN":
+                handle_assignment(connection)
 
-            with condition:
-                if name in servers and servers[name]["active"] > 0:
-                    servers[name]["active"] -= 1
-                    print(f"Released slot on {name}: {servers[name]['active']}")
-                    dispatch()
+            elif request.startswith("RELEASE "):
+                name = request.removeprefix("RELEASE ").strip()
+
+                with condition:
+                    if (
+                        name in servers
+                        and servers[name]["active"] > 0
+                    ):
+                        servers[name]["active"] -= 1
+                        print(
+                            f"Released slot on {name}: "
+                            f"{servers[name]['active']}"
+                        )
+                        dispatch()
+
+        finally:
+            reader.close()
 
 
 def start_coordinator():
@@ -105,12 +130,16 @@ def start_coordinator():
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((HOST, PORT))
         server.listen()
+
         print(f"Coordinator listening on {HOST}:{PORT}")
 
         while True:
             connection, _ = server.accept()
+
             threading.Thread(
-                target=handle_request, args=(connection,), daemon=True
+                target=handle_request,
+                args=(connection,),
+                daemon=True,
             ).start()
 
 

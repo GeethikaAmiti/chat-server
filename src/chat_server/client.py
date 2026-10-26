@@ -35,14 +35,15 @@ def release_slot(server_name):
     except OSError:
         pass
 
-
 def receive_messages(client):
     while True:
         try:
             data = client.recv(1024)
             if not data:
                 break
+
             print(data.decode(), end="", flush=True)
+
         except OSError:
             break
 
@@ -64,26 +65,45 @@ def main():
             client.sendall(f"{username}\n".encode())
             print(f"Connected to {server_name}.")
 
-            threading.Thread(
-                target=receive_messages, args=(client,), daemon=True
-            ).start()
+            receiver = threading.Thread(
+                target=receive_messages,
+                args=(client,),
+                daemon=True,
+            )
+            receiver.start()
 
             prompt = PromptSession()
+
             try:
                 with patch_stdout():
                     while True:
                         message = prompt.prompt("You: ")
-                        if message.lower() == "exit":
+
+                        if message.lower() == "finish":
+                            client.sendall(b"finish\n")
+
+                            rating = input("Rate your session (1-5): ").strip()
+
+                            while rating not in {"1", "2", "3", "4", "5"}:
+                                rating = input("Enter a rating from 1 to 5: ").strip()
+
+                            client.sendall(f"{rating}\n".encode())
                             break
+
+                            client.sendall(b"finish\n")
+                            client.sendall(f"{rating}\n".encode())
+                            break
+
                         client.sendall(f"{message}\n".encode())
+
             except (KeyboardInterrupt, EOFError, OSError):
                 pass
+
+            print("Disconnected from chat.")
 
     except OSError as error:
         print(f"Could not connect to {server_name}: {error}")
         release_slot(server_name)
-
-    print("Disconnected from chat.")
 
 
 if __name__ == "__main__":
