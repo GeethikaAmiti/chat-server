@@ -3,64 +3,59 @@ import socket
 import time
 
 from coordinator import start_coordinator
+from chat_broker import start_broker
 from server import start_server
 
-
 HOST = "127.0.0.1"
-COORDINATOR_PORT = 5000
 
 
-def wait_for_coordinator(process):
+def wait_for_port(port, process):
     deadline = time.monotonic() + 5
 
     while time.monotonic() < deadline:
         if not process.is_alive():
-            raise RuntimeError("Coordinator process exited unexpectedly.")
+            raise RuntimeError(f"Process for port {port} stopped.")
 
         try:
-            with socket.create_connection(
-                (HOST, COORDINATOR_PORT), timeout=0.2
-            ):
+            with socket.create_connection((HOST, port), timeout=0.2):
                 return
         except OSError:
             time.sleep(0.1)
 
-    raise RuntimeError("Coordinator did not start within 5 seconds.")
+    raise RuntimeError(f"Port {port} did not become available.")
 
 
 def main():
     processes = []
 
-    coordinator = multiprocessing.Process(
-        target=start_coordinator,
-        name="Coordinator",
-    )
-    processes.append(coordinator)
-    coordinator.start()
-
     try:
-        wait_for_coordinator(coordinator)
+        coordinator = multiprocessing.Process(target=start_coordinator)
+        coordinator.start()
+        processes.append(coordinator)
+        wait_for_port(5000, coordinator)
 
-        servers = [
+        broker = multiprocessing.Process(target=start_broker)
+        broker.start()
+        processes.append(broker)
+        wait_for_port(5004, broker)
+
+        for name, port in [
             ("Server A", 5001),
             ("Server B", 5002),
             ("Server C", 5003),
-        ]
-
-        for name, port in servers:
+        ]:
             process = multiprocessing.Process(
                 target=start_server,
                 args=(name, port),
-                name=name,
             )
-            processes.append(process)
             process.start()
+            processes.append(process)
 
         for process in processes:
             process.join()
 
     except KeyboardInterrupt:
-        print("\nStopping coordinator and servers...")
+        print("\nStopping chat system...")
 
     except Exception as error:
         print(f"Startup error: {error}")
