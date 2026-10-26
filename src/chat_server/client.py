@@ -30,13 +30,16 @@ def request_server():
 
 def release_slot(server_name):
     try:
-        with socket.create_connection((HOST, COORDINATOR_PORT)) as coordinator:
+        with socket.create_connection(
+            (HOST, COORDINATOR_PORT)
+        ) as coordinator:
             coordinator.sendall(f"RELEASE {server_name}\n".encode())
     except OSError:
         pass
 
-def receive_messages(client):
-    while True:
+
+def receive_messages(client, stop_event):
+    while not stop_event.is_set():
         try:
             data = client.recv(1024)
             if not data:
@@ -59,6 +62,8 @@ def main():
         return
 
     server_name, port = assignment
+    stop_event = threading.Event()
+    receiver = None
 
     try:
         with socket.create_connection((HOST, port)) as client:
@@ -67,8 +72,8 @@ def main():
 
             receiver = threading.Thread(
                 target=receive_messages,
-                args=(client,),
-                daemon=True,
+                args=(client, stop_event),
+                daemon=False,
             )
             receiver.start()
 
@@ -82,15 +87,15 @@ def main():
                         if message.lower() == "finish":
                             client.sendall(b"finish\n")
 
-                            rating = input("Rate your session (1-5): ").strip()
+                            rating = input(
+                                "Rate your session (1-5): "
+                            ).strip()
 
                             while rating not in {"1", "2", "3", "4", "5"}:
-                                rating = input("Enter a rating from 1 to 5: ").strip()
+                                rating = input(
+                                    "Enter a rating from 1 to 5: "
+                                ).strip()
 
-                            client.sendall(f"{rating}\n".encode())
-                            break
-
-                            client.sendall(b"finish\n")
                             client.sendall(f"{rating}\n".encode())
                             break
 
@@ -99,6 +104,11 @@ def main():
             except (KeyboardInterrupt, EOFError, OSError):
                 pass
 
+            finally:
+                stop_event.set()
+                client.shutdown(socket.SHUT_RDWR)
+
+            receiver.join(timeout=2)
             print("Disconnected from chat.")
 
     except OSError as error:

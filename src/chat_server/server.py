@@ -5,6 +5,7 @@ from datetime import datetime
 
 from stats_manager import update, get_dashboard
 from chat_manager import ChatManager
+from archive_logger import log_event
 
 HOST = "127.0.0.1"
 COORDINATOR_PORT = 5000
@@ -62,8 +63,8 @@ def receive_shared_messages(connection, server_name):
     try:
         for line in reader:
             event = json.loads(line)
-
             message = f"{event['username']}: {event['message']}"
+
             chat_manager.add_message(
                 event["username"], event["message"]
             )
@@ -85,7 +86,7 @@ def print_dashboard(server_name, current_client):
     )
 
     print(f"\n=== {server_name} DASHBOARD ===")
-    print(f"Date and time:       {stats['time']}")
+    print(f"Date and time:        {stats['time']}")
     print(f"Clients served today: {stats['served_today']}")
     print(f"Clients served month: {stats['served_month']}")
     print(f"Average rating:       {average_text}")
@@ -122,6 +123,8 @@ def handle_client(connection, address, server_name):
                 clients[connection] = username
 
             print(f"{username} joined {server_name}")
+            log_event(f"{username} joined {server_name}")
+
             print_dashboard(server_name, username)
 
             connection.sendall(
@@ -160,6 +163,11 @@ def handle_client(connection, address, server_name):
                     continue
 
                 message_count += 1
+
+                log_event(
+                    f"{username} on {server_name}: {message}"
+                )
+
                 chat_manager.add_message(username, message)
 
                 broadcast(
@@ -181,7 +189,7 @@ def handle_client(connection, address, server_name):
         with clients_lock:
             clients.pop(connection, None)
 
-        # Only record real client sessions.
+        # Save statistics and log only genuine client sessions.
         if username and entered_at is not None:
             left_at = datetime.now()
             duration = (left_at - entered_at).total_seconds()
@@ -198,6 +206,12 @@ def handle_client(connection, address, server_name):
                 )
             except (OSError, ValueError) as error:
                 print(f"Could not save session statistics: {error}")
+
+            log_event(
+                f"{username} ended session on {server_name}; "
+                f"duration={duration:.2f}s; "
+                f"messages={message_count}; rating={rating}"
+            )
 
             print(
                 f"Session summary: {username} | "
