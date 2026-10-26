@@ -1,10 +1,35 @@
 import socket
 import threading
+
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
 
+
 HOST = "127.0.0.1"
-PORT = 5000
+COORDINATOR_PORT = 5000
+
+
+def request_server():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as coordinator:
+        coordinator.connect((HOST, COORDINATOR_PORT))
+        coordinator.sendall(b"ASSIGN\n")
+
+        response = coordinator.recv(1024).decode().strip()
+
+    if response == "FULL":
+        return None
+
+    server_name, port = response.split("|")
+    return server_name, int(port)
+
+
+def release_slot(server_name):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as coordinator:
+            coordinator.connect((HOST, COORDINATOR_PORT))
+            coordinator.sendall(f"RELEASE {server_name}\n".encode())
+    except OSError:
+        pass
 
 
 def receive_messages(client):
@@ -14,39 +39,69 @@ def receive_messages(client):
 
             if not data:
                 break
-            #better formatting
+
             print(data.decode(), end="", flush=True)
+
         except OSError:
             break
 
 
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
-    client.connect((HOST, PORT))
-    print("Connected to the server!")
-
+def main():
     username = input("Enter your username: ").strip()
-    client.sendall(f"{username}\n".encode())
 
-    receiver = threading.Thread(
-        target=receive_messages,
-        args=(client,),
-        daemon=True,
-    )
-    receiver.start()
+    if not username:
+        print("Username cannot be empty.")
+        return
 
-    prompt = PromptSession()
+    assignment = request_server()
+
+    if assignment is None:
+        print("All servers are full. Please try again later.")
+        return
+
+    server_name, port = assignment
+    connected = False
 
     try:
-        with patch_stdout():
-            while True:
-                message = prompt.prompt("You: ")
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+            client.connect((HOST, port))
+            connected = True
 
-                if message.lower() == "exit":
-                    break
+            client.sendall(f"{username}\n".encode())
 
-                client.sendall(f"{message}\n".encode())
+            print(f"Connecting to {server_name}...")
 
-    except (KeyboardInterrupt, EOFError, OSError):
-        pass
+            receiver = threading.Thread(
+                target=receive_messages,
+                args=(client,),
+                daemon=True,
+            )
+            receiver.start()
 
-    print("Disconnected from chat.")
+            prompt = PromptSession()
+
+            try:
+                with patch_stdout():
+                    while True:
+                        message = prompt.prompt("You: ")
+
+                        if message.lower() == "exit":
+                            break
+
+                        client.sendall(f"{message}\n".encode())
+
+            except (KeyboardInterrupt, EOFError, OSError):
+                pass
+
+            print("Disconnected from chat.")
+
+    except OSError as error:
+        print(f"Could not connect to {server_name}: {error}")
+
+    finally:
+        if not connected:
+            release_slot(server_name)
+
+
+if __name__ == "__main__":
+    main()
