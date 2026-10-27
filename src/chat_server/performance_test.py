@@ -4,16 +4,20 @@ import psutil
 
 class PerformanceMonitor:
     def __init__(self):
-        self.servers = {
-            "Server A": 5001,
-            "Server B": 5002,
-            "Server C": 5003,
-        }
+        self.host = "127.0.0.1"
+        self.coordinator_port = 5000
+        self.broker_port = 5004
         self.processes = {}
 
     def find_servers(self):
-        """Find the process ID of each server."""
-        for name, port in self.servers.items():
+        """Find server processes listening on ports from 5001 onward."""
+        self.processes.clear()
+
+        # Check ports used by chat servers, skipping the broker port.
+        for port in range(5001, 65536):
+            if port == self.broker_port:
+                continue
+
             result = subprocess.run(
                 ["fuser", f"{port}/tcp"],
                 capture_output=True,
@@ -22,9 +26,15 @@ class PerformanceMonitor:
 
             for pid in result.stdout.split():
                 try:
-                    self.processes[name] = psutil.Process(int(pid))
-                    break
-                except (psutil.NoSuchProcess, ValueError):
+                    process = psutil.Process(int(pid))
+                    command = " ".join(process.cmdline())
+
+                    # Identify chat server processes, not unrelated processes.
+                    if "start_server" in command:
+                        self.processes[f"Server (port {port})"] = process
+                        break
+
+                except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
                     continue
 
     def display_stats(self):
@@ -66,7 +76,6 @@ class PerformanceMonitor:
 
         except KeyboardInterrupt:
             print("\nMonitoring stopped.")
-
 
 if __name__ == "__main__":
     PerformanceMonitor().run()
