@@ -9,7 +9,6 @@ LOCK_FILE = Path(__file__).parent / "server_stats.json.lock"
 
 lock = Lock()
 
-
 def read_data():
     if FILE.exists():
         with open(FILE, encoding="utf-8") as file:
@@ -20,7 +19,6 @@ def read_data():
         "servers": {},
         "sessions": [],
     }
-
 
 def update_data(action):
     """Safely read and update statistics across processes."""
@@ -46,7 +44,6 @@ def update_data(action):
         finally:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
-
 def record_approach():
     def action(data):
         data["totals"]["approached"] += 1
@@ -59,7 +56,6 @@ def record_lost():
         data["totals"]["lost"] += 1
 
     update_data(action)
-
 
 def update(server, client, entered, left, duration, messages, rating):
     def action(data):
@@ -96,7 +92,6 @@ def update(server, client, entered, left, duration, messages, rating):
         })
 
     update_data(action)
-
 
 def get_dashboard(server_name):
     """Return saved statistics for one server."""

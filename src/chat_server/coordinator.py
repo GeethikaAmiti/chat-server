@@ -2,9 +2,7 @@ import socket
 import threading
 import time
 from collections import deque
-
 from stats_manager import record_approach, record_lost
-
 
 class Coordinator:
     def __init__(self):

@@ -1,9 +1,7 @@
 import itertools
 import socket
 import time
-
 from locust import User, task, between
-
 
 # Coordinator connection settings.
 HOST = "127.0.0.1"

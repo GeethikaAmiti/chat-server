@@ -1,7 +1,6 @@
 from datetime import datetime
 from threading import Lock
 
-
 class StatsTracker:
     def __init__(self):
         self.lock = Lock()
