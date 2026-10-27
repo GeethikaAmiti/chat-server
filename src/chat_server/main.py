@@ -2,7 +2,7 @@ import multiprocessing
 import socket
 import time
 
-from coordinator import start_coordinator
+from coordinator import Coordinator
 from chat_broker import start_broker
 from server import start_server
 
@@ -28,8 +28,10 @@ def wait_for_port(port, process):
 def main():
     processes = []
 
+
     try:
-        coordinator = multiprocessing.Process(target=start_coordinator)
+        coordinator_instance=Coordinator()
+        coordinator = multiprocessing.Process(target=coordinator_instance.start)
         coordinator.start()
         processes.append(coordinator)
         wait_for_port(5000, coordinator)

@@ -2,6 +2,7 @@ import socket
 import threading
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
+from datetime import datetime
 
 HOST = "127.0.0.1"
 COORDINATOR_PORT = 5000
@@ -68,7 +69,7 @@ def main():
     try:
         with socket.create_connection((HOST, port)) as client:
             client.sendall(f"{username}\n".encode())
-            print(f"Connected to {server_name}.")
+            print(f"Date and time: {datetime.now():%Y-%m-%d %H:%M:%S}")
 
             receiver = threading.Thread(
                 target=receive_messages,

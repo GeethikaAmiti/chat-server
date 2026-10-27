@@ -5,7 +5,7 @@ from collections import Counter
 
 HOST = "127.0.0.1"
 COORDINATOR_PORT = 5000
-NUM_CLIENTS = 20
+NUM_CLIENTS = 100
 SESSION_DURATION = 3
 
 results = Counter()
@@ -15,16 +15,18 @@ results_lock = threading.Lock()
 def simulate_client(client_id):
     username = f"TestClient_{client_id}"
     server_name = None
+    outcome = "failed"
     assigned = False
 
     try:
         # Request a server assignment.
         with socket.create_connection(
-            (HOST, COORDINATOR_PORT), timeout=10
+            (HOST, COORDINATOR_PORT), timeout=60
         ) as coordinator:
             coordinator.sendall(b"ASSIGN\n")
 
-            response = coordinator.makefile("r").readline().strip()
+            with coordinator.makefile("r", encoding="utf-8") as reader:
+                response = reader.readline().strip()
 
         if response == "TIMEOUT":
             outcome = "timed_out"
@@ -45,16 +47,28 @@ def simulate_client(client_id):
             client.sendall(f"{username}\n".encode())
 
             # Read the server's greeting.
-            client.settimeout(3)
-            greeting = client.recv(1024)
+            client.settimeout(5)
 
-            if not greeting:
-                outcome = "connection_failed"
-                return
+            with client.makefile("r", encoding="utf-8") as reader:
+                greeting = reader.readline().strip()
 
-            # Keep the session active for the test duration.
-            time.sleep(SESSION_DURATION)
-            outcome = "assigned"
+                if not greeting:
+                    outcome = "connection_failed"
+                    return
+
+                # Keep the session active.
+                time.sleep(SESSION_DURATION)
+
+                # End the session and submit a rating.
+                client.sendall(b"finish\n")
+                client.sendall(b"5\n")
+
+                response = reader.readline().strip()
+
+                if "Session completed" in response:
+                    outcome = "assigned"
+                else:
+                    outcome = "connection_failed"
 
     except (OSError, ValueError) as error:
         print(f"{username}: {error}")
@@ -64,7 +78,7 @@ def simulate_client(client_id):
         with results_lock:
             results[outcome] += 1
 
-            if assigned:
+            if assigned and server_name:
                 results[f"{server_name}_assigned"] += 1
 
         print(f"{username}: {outcome}")
