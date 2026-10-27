@@ -21,14 +21,13 @@ def read_data():
     }
 
 def update_data(action):
-    """Safely read and update statistics across processes."""
+    """Safely update statistics across processes."""
     with lock, open(LOCK_FILE, "a") as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
 
         try:
             data = read_data()
 
-            # Support existing JSON files that lack global counters.
             data.setdefault("totals", {"approached": 0, "lost": 0})
             data.setdefault("servers", {})
             data.setdefault("sessions", [])
@@ -50,7 +49,6 @@ def record_approach():
 
     update_data(action)
 
-
 def record_lost():
     def action(data):
         data["totals"]["lost"] += 1
@@ -70,11 +68,8 @@ def update(server, client, entered, left, duration, messages, rating):
 
         for period, key in periods:
             counts = period.setdefault(
-                key,
-                {"served": 0, "rating_sum": 0, "ratings": 0},
+                key, {"served": 0, "rating_sum": 0, "ratings": 0}
             )
-
-            # A valid client session counts as served even without a rating.
             counts["served"] += 1
 
             if rating is not None:
@@ -104,10 +99,10 @@ def get_dashboard(server_name):
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     now = datetime.now()
+
     stats = data.get("servers", {}).get(
         server_name, {"daily": {}, "monthly": {}}
     )
-
     today = stats["daily"].get(
         now.strftime("%Y-%m-%d"),
         {"served": 0, "rating_sum": 0, "ratings": 0},
@@ -118,16 +113,16 @@ def get_dashboard(server_name):
         {"served": 0, "rating_sum": 0, "ratings": 0},
     )
 
-    average = (
-        today["rating_sum"] / today["ratings"]
-        if today["ratings"] else None
-    )
+    if today["ratings"] > 0:
+        average_rating = today["rating_sum"] / today["ratings"]
+    else:
+        average_rating = None
 
     return {
         "time": now.strftime("%Y-%m-%d %H:%M:%S"),
         "served_today": today["served"],
         "served_month": month["served"],
-        "average_rating": average,
+        "average_rating": average_rating,
         "approached": data["totals"]["approached"],
         "lost": data["totals"]["lost"],
     }
