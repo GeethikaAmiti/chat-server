@@ -66,9 +66,10 @@ class Coordinator:
 
         with self.condition:
             self.waiting_queue.append(entry)
-            print(f"Client queued. Position: {len(self.waiting_queue)}")
-
             self.dispatch()
+
+            if entry["status"] == "waiting":
+                print(f"[QUEUE] Client waiting | "f"Position: {self.waiting_queue.index(entry) + 1}")
 
             while entry["status"] == "waiting":
                 remaining = self.wait_timeout - (
@@ -126,7 +127,7 @@ class Coordinator:
                         ):
                             self.servers[name]["active"] -= 1
                             print(
-                                f"Released slot on {name}: "
+                                f"Active sessions on {name}: "
                                 f"{self.servers[name]['active']}"
                             )
                             self.dispatch()
