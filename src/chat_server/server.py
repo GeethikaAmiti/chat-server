@@ -1,7 +1,8 @@
 import json
+import os
+import signal
 import socket
 import threading
-import os
 from datetime import datetime
 
 from stats_manager import update, get_dashboard
@@ -15,10 +16,11 @@ BROKER_PORT = 5004
 # Track connected clients and protect shared data between threads.
 clients = {}
 clients_lock = threading.Lock()
+
 broker_lock = threading.Lock()
 broker_socket = None
-chat_manager = ChatManager()
 
+chat_manager = ChatManager()
 
 def release_slot(server_name):
     """Notify the coordinator that this server is available again."""
@@ -29,6 +31,7 @@ def release_slot(server_name):
             coordinator.sendall(
                 f"RELEASE {server_name}\n".encode()
             )
+
     except OSError as error:
         print(f"Could not release slot: {error}")
 
@@ -37,16 +40,17 @@ def broadcast(message, exclude=None):
     """Send a message to all connected clients except the sender."""
     with clients_lock:
         recipients = [
-            client for client in clients if client is not exclude
+            client for client in clients
+            if client is not exclude
         ]
 
     for client in recipients:
         try:
             client.sendall(f"{message}\n".encode())
+
         except OSError:
             # Ignore clients that have disconnected unexpectedly.
             pass
-
 
 def publish_message(server_name, username, message):
     """Publish a chat message to the shared chat broker."""
@@ -57,10 +61,11 @@ def publish_message(server_name, username, message):
     }) + "\n"
 
     try:
-        # Prevent multiple threads from writing to the broker socket together.
         with broker_lock:
-            broker_socket.sendall(event.encode())
-    except (OSError, AttributeError) as error:
+            if broker_socket is not None:
+                broker_socket.sendall(event.encode())
+
+    except OSError as error:
         print(f"Could not publish message: {error}")
 
 
@@ -71,28 +76,67 @@ def receive_shared_messages(connection, server_name):
     try:
         for line in reader:
             event = json.loads(line)
-            message = f"{event['username']}: {event['message']}"
 
-            # Keep the shared chat history updated.
-            chat_manager.add_message(
-                event["username"], event["message"]
-            )
-            broadcast(message)
+            username = event["username"]
+            message = event["message"]
 
-    except (OSError, ValueError, KeyError):
-        print(f"{server_name}: Chat broker connection lost.")
+            # Update this process's copy of the chat history.
+            chat_manager.add_message(username, message)
+
+            # Notify clients connected to this process.
+            broadcast(f"{username}: {message}")
+
+    except (OSError, ValueError, KeyError) as error:
+        print(
+            f"{server_name}: Chat broker connection lost: {error}"
+        )
 
     finally:
         reader.close()
 
+def connect_to_broker(server_name):
+    """Create a broker connection for this process."""
+    global broker_socket
+    global broker_lock
+
+    # Close this process's copy of an inherited broker socket, if any.
+    # Closing the child's copy does not close the parent's socket.
+    if broker_socket is not None:
+        try:
+            broker_socket.close()
+        except OSError:
+            pass
+
+    # Create a fresh lock and connection for this process.
+    broker_lock = threading.Lock()
+
+    broker_socket = socket.create_connection(
+        (HOST, BROKER_PORT)
+    )
+
+    registration = json.dumps({
+        "server": server_name
+    }) + "\n"
+
+    broker_socket.sendall(registration.encode())
+
+    # Each process needs its own receiver thread.
+    threading.Thread(
+        target=receive_shared_messages,
+        args=(broker_socket, server_name),
+        daemon=True,
+    ).start()
 
 def print_dashboard(server_name, current_client):
     """Display the server's current statistics and active client."""
     stats = get_dashboard(server_name)
 
     average = stats["average_rating"]
+
     average_text = (
-        f"{average:.2f}/5" if average is not None else "N/A"
+        f"{average:.2f}/5"
+        if average is not None
+        else "N/A"
     )
 
     print(f"\n=== {server_name} DASHBOARD ===")
@@ -105,7 +149,6 @@ def print_dashboard(server_name, current_client):
     print(f"Current client:       {current_client or 'None'}")
     print("==============================\n")
 
-
 def handle_client(connection, address, server_name):
     """Manage one client's chat session from connection to disconnection."""
     username = ""
@@ -114,8 +157,7 @@ def handle_client(connection, address, server_name):
     message_count = 0
     rating = None
 
-    print(f"{server_name}: Connection from {address}")
-
+    print(f"\n[CONNECT] {server_name} | Client connected")
     try:
         with connection:
             reader = connection.makefile("r", encoding="utf-8")
@@ -128,25 +170,21 @@ def handle_client(connection, address, server_name):
             ):
                 return
 
-            # Record when the client joins the chat.
             entered_at = datetime.now()
 
-            # Add the client to the active-client list safely.
             with clients_lock:
                 clients[connection] = username
 
-            print(f"{username} joined {server_name}")
+            print(f"[SESSION] {server_name} | Client: {username} | Started")
             log_event(f"{username} joined {server_name}")
 
-            # Display the dashboard with the current client.
             print_dashboard(server_name, username)
 
-            # Tell the client which server they connected to.
             connection.sendall(
                 f"You are connected to {server_name}.\n".encode()
             )
 
-            # Send previous messages in the shared chat history.
+            # Send the history available in this process.
             for message in chat_manager.get_history():
                 connection.sendall(f"{message}\n".encode())
 
@@ -155,13 +193,11 @@ def handle_client(connection, address, server_name):
                 message = line.strip()
 
                 if message.lower() == "finish":
-                    # The client sends their rating immediately after "finish".
                     rating_text = reader.readline().strip()
 
                     try:
                         value = int(rating_text)
 
-                        # Accept ratings only from 1 to 5.
                         if not 1 <= value <= 5:
                             raise ValueError
 
@@ -183,13 +219,11 @@ def handle_client(connection, address, server_name):
 
                 message_count += 1
 
-                # Record chat activity in the archive log.
                 log_event(
                     f"{username} on {server_name}: {message}"
                 )
 
-                # Update shared history, notify local clients, and publish
-                # the message so other servers can share it too.
+                # Update local history and notify local clients.
                 chat_manager.add_message(username, message)
 
                 broadcast(
@@ -197,8 +231,11 @@ def handle_client(connection, address, server_name):
                     exclude=connection,
                 )
 
+                # Share the message with other server processes.
                 publish_message(
-                    server_name, username, message
+                    server_name,
+                    username,
+                    message,
                 )
 
     except OSError as error:
@@ -208,18 +245,15 @@ def handle_client(connection, address, server_name):
         if reader:
             reader.close()
 
-        # Remove the client from the active-client list.
         with clients_lock:
             clients.pop(connection, None)
 
         # Save statistics only for genuine client sessions.
         if username and entered_at is not None:
-            # Record when the session ends and calculate its duration.
             left_at = datetime.now()
             duration = (left_at - entered_at).total_seconds()
 
             try:
-                # Save the session details and update server statistics.
                 update(
                     server_name,
                     username,
@@ -229,73 +263,162 @@ def handle_client(connection, address, server_name):
                     message_count,
                     rating,
                 )
+
             except (OSError, ValueError) as error:
                 print(f"Could not save session statistics: {error}")
 
-            # Record the completed session in the archive log.
             log_event(
                 f"{username} ended session on {server_name}; "
                 f"duration={duration:.2f}s; "
                 f"messages={message_count}; rating={rating}"
             )
 
-            # Print the complete session summary, including entry and exit times.
             print(
                 f"Session summary: {username} | "
                 f"Server: {server_name} | "
-                f"Entered at: {entered_at.strftime('%Y-%m-%d %H:%M:%S')} | "
-                f"Left at: {left_at.strftime('%Y-%m-%d %H:%M:%S')} | "
+                f"Entered at: "
+                f"{entered_at.strftime('%Y-%m-%d %H:%M:%S')} | "
+                f"Left at: "
+                f"{left_at.strftime('%Y-%m-%d %H:%M:%S')} | "
                 f"Duration: {duration:.2f}s | "
                 f"Messages: {message_count} | Rating: {rating}"
             )
 
-            # Refresh the dashboard and release the server slot.
             print_dashboard(server_name, None)
             release_slot(server_name)
 
+def restore_child_history(history):
+    """Create fresh child-process state and restore chat history."""
+    global clients
+    global clients_lock
+    global broker_lock
+    global chat_manager
+
+    # Do not reuse inherited thread locks in the child process.
+    clients = {}
+    clients_lock = threading.Lock()
+    broker_lock = threading.Lock()
+
+    # Create a fresh ChatManager rather than reusing its inherited lock.
+    chat_manager = ChatManager()
+
+    # History entries are formatted as 'username: message'.
+    for entry in history:
+        if ": " in entry:
+            username, message = entry.split(": ", 1)
+            chat_manager.add_message(username, message)
+
+def reap_children(signum, frame):
+    """Collect completed child processes without blocking."""
+    while True:
+        try:
+            pid, status = os.waitpid(-1, os.WNOHANG)
+
+            if pid == 0:
+                break
+
+        except ChildProcessError:
+            break
 
 def start_server(name, port):
-    """Register the server with the broker and accept client connections."""
+    """Start a server that supports iterative, threading, or forking mode."""
     global broker_socket
-    # Connect this server to the shared chat broker and register its name.
-    broker_socket = socket.create_connection(
-        (HOST, BROKER_PORT)
-    )
-    broker_socket.sendall(
-        (json.dumps({"server": name}) + "\n").encode()
-    )
-    # Listen for messages published by other servers.
-    threading.Thread(
-        target=receive_shared_messages,
-        args=(broker_socket, name),
-        daemon=True,
-    ).start()
-    # Open the server's listening socket for client connections.
+
+    mode = os.getenv("CHAT_MODE", "threading")
+
+    if mode not in ("iterative", "threading", "forking"):
+        raise ValueError(
+            "CHAT_MODE must be iterative, threading, or forking."
+        )
+
+    # Reap completed children in forking mode.
+    if mode == "forking":
+        signal.signal(signal.SIGCHLD, reap_children)
+
+    # The parent process maintains its broker connection and chat history.
+    connect_to_broker(name)
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
-        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.setsockopt(
+            socket.SOL_SOCKET,
+            socket.SO_REUSEADDR,
+            1,
+        )
         server.bind((HOST, port))
         server.listen()
+
         print(f"{name} listening on {HOST}:{port}")
-        # Create a separate thread to handle each incoming client.
+
         while True:
             connection, address = server.accept()
 
-            mode = os.getenv("CHAT_MODE", "threading")
-            #Chat mode- threading
             if mode == "threading":
                 threading.Thread(
                     target=handle_client,
                     args=(connection, address, name),
                     daemon=True,
                 ).start()
-            #Chat mode- iterative
+
             elif mode == "iterative":
                 handle_client(connection, address, name)
 
-            else:
-                connection.close()
-                raise ValueError(f"Unsupported CHAT_MODE: {mode}")
+            elif mode == "forking":
+                # Capture the latest history before creating the child.
+                history = chat_manager.get_history()
 
+                try:
+                    pid = os.fork()
+
+                except OSError as error:
+                    connection.close()
+                    print(
+                        f"Could not fork for client {address}: {error}"
+                    )
+                    continue
+
+                if pid == 0:
+                    # Child process: handle this client independently.
+                    server.close()
+
+                    try:
+                        restore_child_history(history)
+
+                        # Give this child its own broker connection.
+                        connect_to_broker(name)
+
+                        handle_client(
+                            connection,
+                            address,
+                            name,
+                        )
+
+                    except Exception as error:
+                        print(
+                            f"Child process error for {address}: {error}"
+                        )
+
+                    finally:
+                        connection.close()
+
+                        if broker_socket is not None:
+                            try:
+                                broker_socket.shutdown(
+                                    socket.SHUT_RDWR
+                                )
+                            except OSError:
+                                pass
+
+                            try:
+                                broker_socket.close()
+                            except OSError:
+                                pass
+
+                        # Exit without running the parent's Python cleanup.
+                        os._exit(0)
+
+                else:
+                    # Parent process keeps accepting new clients.
+                    connection.close()
 
 if __name__ == "__main__":
     start_server("Server A", 5001)
