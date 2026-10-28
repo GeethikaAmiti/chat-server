@@ -1,6 +1,7 @@
 import multiprocessing
 import socket
 import time
+import os
 from coordinator import Coordinator
 from chat_broker import start_broker
 from server import start_server
@@ -39,7 +40,8 @@ def main():
 
     try:
         # Start the coordinator with the selected server count.
-        coordinator_instance = Coordinator(num_servers)
+        mode=os.getenv("CHAT_MODE", "threading")
+        coordinator_instance = Coordinator(num_servers, mode)
         coordinator = multiprocessing.Process(
             target=coordinator_instance.start
         )

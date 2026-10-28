@@ -1,6 +1,7 @@
 import json
 import socket
 import threading
+import os
 from datetime import datetime
 
 from stats_manager import update, get_dashboard
@@ -256,40 +257,44 @@ def handle_client(connection, address, server_name):
 def start_server(name, port):
     """Register the server with the broker and accept client connections."""
     global broker_socket
-
     # Connect this server to the shared chat broker and register its name.
     broker_socket = socket.create_connection(
         (HOST, BROKER_PORT)
     )
-
     broker_socket.sendall(
         (json.dumps({"server": name}) + "\n").encode()
     )
-
     # Listen for messages published by other servers.
     threading.Thread(
         target=receive_shared_messages,
         args=(broker_socket, name),
         daemon=True,
     ).start()
-
     # Open the server's listening socket for client connections.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((HOST, port))
         server.listen()
-
         print(f"{name} listening on {HOST}:{port}")
-
         # Create a separate thread to handle each incoming client.
         while True:
             connection, address = server.accept()
 
-            threading.Thread(
-                target=handle_client,
-                args=(connection, address, name),
-                daemon=True,
-            ).start()
+            mode = os.getenv("CHAT_MODE", "threading")
+            #Chat mode- threading
+            if mode == "threading":
+                threading.Thread(
+                    target=handle_client,
+                    args=(connection, address, name),
+                    daemon=True,
+                ).start()
+            #Chat mode- iterative
+            elif mode == "iterative":
+                handle_client(connection, address, name)
+
+            else:
+                connection.close()
+                raise ValueError(f"Unsupported CHAT_MODE: {mode}")
 
 
 if __name__ == "__main__":
