@@ -1,11 +1,15 @@
 import fcntl
+import os
 from pathlib import Path
 from datetime import datetime
 
 ARCHIVE_FILE = Path(__file__).parent / "archive.log"
 
-
 def log_event(message):
+    #archive logger toggle added
+    if os.getenv("ARCHIVE_LOGGING", "1") != "1":
+        return
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = f"{timestamp} | {message}\n"
 

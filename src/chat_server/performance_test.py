@@ -10,35 +10,37 @@ class PerformanceMonitor:
         self.processes = {}
 
     def find_servers(self):
-        """Find server processes listening on ports from 5001 onward."""
+    #Find chat server processes using their listening ports
         self.processes.clear()
 
-        # Check ports used by chat servers, skipping the broker port.
-        for port in range(5001, 65536):
-            if port == self.broker_port:
+        try:
+            connections = psutil.net_connections(kind="tcp")
+        except psutil.AccessDenied:
+            print("Cannot inspect network connections. Check process permissions.")
+            return
+
+        for connection in connections:
+            if connection.status != psutil.CONN_LISTEN:
                 continue
 
-            result = subprocess.run(
-                ["fuser", f"{port}/tcp"],
-                capture_output=True,
-                text=True,
-            )
+            if not connection.laddr or connection.pid is None:
+                continue
 
-            for pid in result.stdout.split():
-                try:
-                    process = psutil.Process(int(pid))
-                    command = " ".join(process.cmdline())
+            port = connection.laddr.port
 
-                    # Identify chat server processes, not unrelated processes.
-                    if "start_server" in command:
-                        self.processes[f"Server (port {port})"] = process
-                        break
+        # Chat servers use ports from 5001 onward.
+        # Port 5004 belongs to the broker.
+            if port < 5001 or port in (self.broker_port, 8089):
+                continue
 
-                except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
-                    continue
+            try:
+                process = psutil.Process(connection.pid)
+                self.processes[f"Server (port {port})"] = process
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
 
     def display_stats(self):
-        """Display CPU, memory, and disk I/O for each server."""
+        #Display CPU, memory, and disk I/O for each server
         print("\n========== SERVER PERFORMANCE ==========")
 
         for name, process in list(self.processes.items()):
