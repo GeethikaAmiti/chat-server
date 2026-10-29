@@ -13,7 +13,7 @@ HOST = "127.0.0.1"
 COORDINATOR_PORT = 5000
 BROKER_PORT = 5004
 
-# Track connected clients and protect shared data between threads.
+# track connected clients and protect shared data between threads
 clients = {}
 clients_lock = threading.Lock()
 
@@ -49,7 +49,7 @@ def broadcast(message, exclude=None):
             client.sendall(f"{message}\n".encode())
 
         except OSError:
-            # Ignore clients that have disconnected unexpectedly.
+            # ignore clients that have disconnected unexpectedly
             pass
 
 def publish_message(server_name, username, message):
@@ -80,10 +80,10 @@ def receive_shared_messages(connection, server_name):
             username = event["username"]
             message = event["message"]
 
-            # Update this process's copy of the chat history.
+            # Update this process's copy of the chat history
             chat_manager.add_message(username, message)
 
-            # Notify clients connected to this process.
+            # notify clients connected to this process
             broadcast(f"{username}: {message}")
 
     except (OSError, ValueError, KeyError) as error:
@@ -99,15 +99,15 @@ def connect_to_broker(server_name):
     global broker_socket
     global broker_lock
 
-    # Close this process's copy of an inherited broker socket, if any.
-    # Closing the child's copy does not close the parent's socket.
+    # close this process's copy of an inherited broker socket, if any
+    # closing the child's copy does not close the parent's socket
     if broker_socket is not None:
         try:
             broker_socket.close()
         except OSError:
             pass
 
-    # Create a fresh lock and connection for this process.
+    # create a fresh lock and connection for this process
     broker_lock = threading.Lock()
 
     broker_socket = socket.create_connection(
@@ -120,7 +120,7 @@ def connect_to_broker(server_name):
 
     broker_socket.sendall(registration.encode())
 
-    # Each process needs its own receiver thread.
+    # each process needs its own receiver thread
     threading.Thread(
         target=receive_shared_messages,
         args=(broker_socket, server_name),
@@ -417,7 +417,7 @@ def start_server(name, port):
                         os._exit(0)
 
                 else:
-                    # Parent process keeps accepting new clients.
+                    # parent process keeps accepting new clients
                     connection.close()
 
 if __name__ == "__main__":

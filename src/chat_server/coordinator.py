@@ -8,7 +8,8 @@ class Coordinator:
     def __init__(self, num_servers=3, mode="threading"):
         self.host = "127.0.0.1"
         self.port = 5000
-        self.capacity = 1 if mode=="iterative" else 5
+        self.capacity = 1 if mode=="iterative" else 3
+    
         self.wait_timeout = 5 * 60
 
         # Create the requested number of servers.

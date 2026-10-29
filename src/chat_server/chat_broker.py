@@ -5,12 +5,11 @@ import threading
 HOST = "127.0.0.1"
 PORT = 5004
 
-# Map each connection to its registered server name.
-# Multiple connections may belong to the same server.
+# map each connection to its registered server name.
+# multiple connections may belong to the same server.
 connections = {}
 
 lock = threading.Lock()
-
 
 def handle_server(connection):
     """Register a server connection and relay its chat messages."""
@@ -33,9 +32,8 @@ def handle_server(connection):
             message = json.loads(line)
             data = (json.dumps(message) + "\n").encode()
 
-            # Exclude only the connection that sent this message.
-            # Other child processes belonging to the same server
-            # must also receive it.
+            # exclude only the connection that sent this message.
+            # other child processes belonging to the same server must also receive it.
             with lock:
                 recipients = [
                     recipient
@@ -48,7 +46,7 @@ def handle_server(connection):
                         recipient.sendall(data)
 
                     except OSError:
-                        # Its handler will remove the connection.
+                        #its handler will remove the connection.
                         pass
 
     except (OSError, ValueError, KeyError) as error:
@@ -62,7 +60,7 @@ def handle_server(connection):
         connection.close()
 
 def start_broker():
-    """Start the shared chat broker."""
+    # start the shared chat broker
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.setsockopt(
             socket.SOL_SOCKET,
@@ -83,7 +81,6 @@ def start_broker():
                 args=(connection,),
                 daemon=True,
             ).start()
-
 
 if __name__ == "__main__":
     start_broker()

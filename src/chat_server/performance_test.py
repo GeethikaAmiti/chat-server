@@ -10,7 +10,7 @@ class PerformanceMonitor:
         self.processes = {}
 
     def find_servers(self):
-    #Find chat server processes using their listening ports
+    # find chat server processes using their listening ports
         self.processes.clear()
 
         try:
@@ -28,8 +28,8 @@ class PerformanceMonitor:
 
             port = connection.laddr.port
 
-        # Chat servers use ports from 5001 onward.
-        # Port 5004 belongs to the broker.
+        # chat servers use ports from 5001 onward
+        # port 5004 belongs to the broker and 8089 belongs to locust
             if port < 5001 or port in (self.broker_port, 8089):
                 continue
 
@@ -67,7 +67,7 @@ class PerformanceMonitor:
             print("No servers found. Start main.py first.")
             return
 
-        # Initialize CPU measurements before displaying readings.
+        # initialize CPU measurements before displaying readings
         for process in self.processes.values():
             process.cpu_percent(interval=None)
 

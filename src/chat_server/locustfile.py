@@ -3,16 +3,15 @@ import socket
 import time
 from locust import User, task, between
 
-# Coordinator connection settings.
+# coordinator connection settings
 HOST = "127.0.0.1"
 COORDINATOR_PORT = 5000
 
-# Match the five-minute waiting period configured in Coordinator.
-WAIT_TIMEOUT = 5 * 60
+# match the five-minute waiting period configured in Coordinator
+WAIT_TIMEOUT = 10
 
-# Generate unique names for simulated clients.
+# generate unique names for simulated clients
 client_counter = itertools.count(1)
-
 
 class ChatClient(User):
     """Simulate a client connecting to the TCP chat server."""
@@ -46,7 +45,7 @@ class ChatClient(User):
         coordinator = None
         client = None
 
-        # Step 1: Request a server from the Coordinator.
+        # 1. request a server from the coordinator.
         assignment_started = time.perf_counter()
         assignment_error = None
         assignment_response = ""
@@ -67,7 +66,7 @@ class ChatClient(User):
 
             if assignment_response == "TIMEOUT":
                 assignment_error = RuntimeError(
-                    "Client waited five minutes and was marked lost."
+                    "Client waited for 10 seconds and was marked lost."
                 )
             elif not assignment_response:
                 assignment_error = RuntimeError(
@@ -88,11 +87,11 @@ class ChatClient(User):
                 response_length=len(assignment_response),
             )
 
-        # Stop if the Coordinator did not assign a server.
+        # stop if the coordinator did not assign a server
         if assignment_error:
             return
 
-        # Step 2: Connect to the assigned server.
+        # 2. connect to the assigned server
         session_started = time.perf_counter()
         session_error = None
 
@@ -116,7 +115,7 @@ class ChatClient(User):
                 )
 
 
-                # Receive the initial greeting.
+                # receive the initial greeting
                 greeting = reader.readline()
 
                 if not greeting:
@@ -124,16 +123,15 @@ class ChatClient(User):
                         "Server closed the connection before greeting."
                     )
 
-                # Send a chat message, finish the session,
-                # and submit a valid rating.
+                # send a chat message, finish the session and submit a valid rating
                 client.sendall(
                     f"Hello from {self.username}\n".encode()
                 )
-                time.sleep(10)
+                time.sleep(2)
                 client.sendall(b"finish\n")
                 client.sendall(b"5\n")
 
-                # Wait for confirmation that the session finished.
+                # wait for confirmation that the session finished
                 while True:
                     response = reader.readline()
 

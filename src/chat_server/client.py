@@ -8,7 +8,6 @@ HOST = "127.0.0.1"
 COORDINATOR_PORT = 5000
 WAIT_TIMEOUT = 5 * 60
 
-
 def request_server():
     with socket.create_connection(
         (HOST, COORDINATOR_PORT), timeout=WAIT_TIMEOUT + 10
@@ -28,7 +27,6 @@ def request_server():
     server_name, port = response.split("|")
     return server_name, int(port)
 
-
 def release_slot(server_name):
     try:
         with socket.create_connection(
@@ -37,7 +35,6 @@ def release_slot(server_name):
             coordinator.sendall(f"RELEASE {server_name}\n".encode())
     except OSError:
         pass
-
 
 def receive_messages(client, stop_event):
     while not stop_event.is_set():
@@ -50,7 +47,6 @@ def receive_messages(client, stop_event):
 
         except OSError:
             break
-
 
 def main():
     username = input("Enter your username: ").strip()
@@ -115,7 +111,6 @@ def main():
     except OSError as error:
         print(f"Could not connect to {server_name}: {error}")
         release_slot(server_name)
-
 
 if __name__ == "__main__":
     main()
