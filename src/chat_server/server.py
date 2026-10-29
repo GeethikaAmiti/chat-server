@@ -322,8 +322,7 @@ def reap_children(signum, frame):
 
 def start_server(name, port):
     """Start a server that supports iterative, threading, or forking mode."""
-    global broker_socket
-
+    
     mode = os.getenv("CHAT_MODE", "threading")
 
     if mode not in ("iterative", "threading", "forking"):

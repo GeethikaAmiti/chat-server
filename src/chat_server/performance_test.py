@@ -1,5 +1,4 @@
 import time
-import subprocess
 import psutil
 
 class PerformanceMonitor:
