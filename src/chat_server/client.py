@@ -20,11 +20,10 @@ def request_server():
         print("You waited more than five minutes. Please try again later.")
         return None
     
-    '''
     if not response or response == "FULL":
         print("No server assignment available.")
-        return None'''
-
+        return None
+    
     server_name, port = response.split("|")
     return server_name, int(port)
 
